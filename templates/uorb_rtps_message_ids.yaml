@@ -187,9 +187,11 @@ rtps:
     msg: VehicleAirData
   - id: 87
     msg: VehicleAttitude
-    send: true
+    receive: true
   - id: 88
     msg: VehicleAttitudeSetpoint
+    receive: true
+    send : true
   - id: 89
     msg: VehicleCommand
     receive: true

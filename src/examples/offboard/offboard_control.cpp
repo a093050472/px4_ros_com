@@ -45,11 +45,14 @@
 
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
+#include <px4_msgs/msg/vehicle_attitude_setpoint.hpp>
 #include <px4_msgs/msg/timesync.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_control_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <stdint.h>
+#include <math.h>
+#include <px4_ros_com/frame_transforms.h>
 
 #include <chrono>
 #include <iostream>
@@ -57,6 +60,7 @@
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace px4_msgs::msg;
+using namespace px4_ros_com::frame_transforms::utils::quaternion;
 
 class OffboardControl : public rclcpp::Node {
 public:
@@ -66,6 +70,8 @@ public:
 			this->create_publisher<OffboardControlMode>("OffboardControlMode_PubSubTopic", 10);
 		trajectory_setpoint_publisher_ =
 			this->create_publisher<TrajectorySetpoint>("TrajectorySetpoint_PubSubTopic", 10);
+		vehicle_attitude_setpoint_publisher_ =
+			this->create_publisher<VehicleAttitudeSetpoint>("VehicleAttitudeSetpoint_PubSubTopic", 10);
 		vehicle_command_publisher_ =
 			this->create_publisher<VehicleCommand>("VehicleCommand_PubSubTopic", 10);
 #else
@@ -73,6 +79,8 @@ public:
 			this->create_publisher<OffboardControlMode>("OffboardControlMode_PubSubTopic");
 		trajectory_setpoint_publisher_ =
 		 	this->create_publisher<TrajectorySetpoint>("TrajectorySetpoint_PubSubTopic");
+		vehicle_attitude_setpoint_publisher_ =
+			this->create_publisher<VehicleAttitudeSetpoint>("VehicleAttitudeSetpoint_PubSubTopic");
 		vehicle_command_publisher_ =
 			this->create_publisher<VehicleCommand>("VehicleCommand_PubSubTopic");
 #endif
@@ -91,17 +99,17 @@ public:
 			if (offboard_setpoint_counter_ == 10) {
 				// Change to Offboard mode after 10 setpoints
 				this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
-
 				// Arm the vehicle
 				this->arm();
 			}
 
-            		// offboard_control_mode needs to be paired with trajectory_setpoint
+            // offboard_control_mode needs to be paired with trajectory_setpoint
 			publish_offboard_control_mode();
-			publish_trajectory_setpoint();
+			// publish_trajectory_setpoint();
+			publish_vehicle_attitude_setpoint();
 
            		 // stop the counter after reaching 11
-			if (offboard_setpoint_counter_ < 11) {
+			if (offboard_setpoint_counter_ < 100) {
 				offboard_setpoint_counter_++;
 			}
 		};
@@ -116,6 +124,7 @@ private:
 
 	rclcpp::Publisher<OffboardControlMode>::SharedPtr offboard_control_mode_publisher_;
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_publisher_;
+	rclcpp::Publisher<VehicleAttitudeSetpoint>::SharedPtr vehicle_attitude_setpoint_publisher_;
 	rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_publisher_;
 	rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
 
@@ -125,6 +134,7 @@ private:
 
 	void publish_offboard_control_mode() const;
 	void publish_trajectory_setpoint() const;
+	void publish_vehicle_attitude_setpoint() const;
 	void publish_vehicle_command(uint16_t command, float param1 = 0.0,
 				     float param2 = 0.0) const;
 };
@@ -134,7 +144,6 @@ private:
  */
 void OffboardControl::arm() const {
 	publish_vehicle_command(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
-
 	RCLCPP_INFO(this->get_logger(), "Arm command send");
 }
 
@@ -143,7 +152,6 @@ void OffboardControl::arm() const {
  */
 void OffboardControl::disarm() const {
 	publish_vehicle_command(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0);
-
 	RCLCPP_INFO(this->get_logger(), "Disarm command send");
 }
 
@@ -154,11 +162,11 @@ void OffboardControl::disarm() const {
 void OffboardControl::publish_offboard_control_mode() const {
 	OffboardControlMode msg{};
 	msg.timestamp = timestamp_.load();
-	msg.position = true;
+	msg.position = false;
 	msg.velocity = false;
 	msg.acceleration = false;
-	msg.attitude = false;
-	msg.body_rate = false;
+	msg.attitude = true;
+	msg.body_rate = true;
 
 	offboard_control_mode_publisher_->publish(msg);
 }
@@ -178,6 +186,21 @@ void OffboardControl::publish_trajectory_setpoint() const {
 	msg.yaw = -3.14; // [-PI:PI]
 
 	trajectory_setpoint_publisher_->publish(msg);
+}
+
+/**
+ * Publish a attitude setpoint
+ */
+void OffboardControl::publish_vehicle_attitude_setpoint() const {
+	VehicleAttitudeSetpoint msg{};
+	msg.timestamp = timestamp_.load();
+	Eigen::Vector3d eul= {1,1,1};
+	std::array<float, 4> q_d ;
+	eigen_quat_to_array(px4_ros_com::frame_transforms::utils::quaternion::quaternion_from_euler(eul),q_d);
+	msg.q_d = q_d;
+	msg.thrust_body = {0,0,-0.8}; 
+
+	vehicle_attitude_setpoint_publisher_->publish(msg);
 }
 
 /**
@@ -207,7 +230,6 @@ int main(int argc, char* argv[]) {
 	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	rclcpp::init(argc, argv);
 	rclcpp::spin(std::make_shared<OffboardControl>());
-
 	rclcpp::shutdown();
 	return 0;
 }
