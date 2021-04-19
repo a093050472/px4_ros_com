@@ -52,7 +52,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <stdint.h>
 #include <math.h>
-#include <px4_ros_com/frame_transforms.h>
+//#include <px4_ros_com/frame_transforms.h> // disable when first build
 
 #include <chrono>
 #include <iostream>
@@ -60,7 +60,7 @@
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace px4_msgs::msg;
-using namespace px4_ros_com::frame_transforms::utils::quaternion;
+//using namespace px4_ros_com::frame_transforms::utils::quaternion; // disable when first build
 
 class OffboardControl : public rclcpp::Node {
 public:
@@ -90,47 +90,49 @@ public:
 			this->create_subscription<px4_msgs::msg::Timesync>("Timesync_PubSubTopic", 10,
 				[this](const px4_msgs::msg::Timesync::UniquePtr msg) {
 					timestamp_.store(msg->timestamp);
+					std::cout << "ts: "          << msg->timestamp    << std::endl;
 				});
+
 
 		offboard_setpoint_counter_ = 0;
 
 		auto timer_callback = [this]() -> void {
-
-			if (offboard_setpoint_counter_ == 10) {
+			
+			if (offboard_setpoint_counter_ >=0.01 &&  offboard_setpoint_counter_ <=0.05) {
 				// Change to Offboard mode after 10 setpoints
-				this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
+				// this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 				// Arm the vehicle
-				this->arm();
+				// this->arm();
 			}
-
-            // offboard_control_mode needs to be paired with trajectory_setpoint
-			publish_offboard_control_mode();
-			// publish_trajectory_setpoint();
-			publish_vehicle_attitude_setpoint();
-
-           		 // stop the counter after reaching 11
-			if (offboard_setpoint_counter_ < 100) {
-				offboard_setpoint_counter_++;
-			}
+			
+				// offboard_control_mode needs to be paired with trajectory_setpoint
+				publish_offboard_control_mode();
+				publish_trajectory_setpoint();
+				//publish_vehicle_attitude_setpoint();
+			
+            offboard_setpoint_counter_+=0.1;
+			std::cout << timestamp_.load() << std::endl;
+			
 		};
 		timer_ = this->create_wall_timer(100ms, timer_callback);
+		
 	}
-
 	void arm() const;
 	void disarm() const;
 
 private:
 	rclcpp::TimerBase::SharedPtr timer_;
-
+	
 	rclcpp::Publisher<OffboardControlMode>::SharedPtr offboard_control_mode_publisher_;
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_publisher_;
 	rclcpp::Publisher<VehicleAttitudeSetpoint>::SharedPtr vehicle_attitude_setpoint_publisher_;
 	rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_publisher_;
 	rclcpp::Subscription<px4_msgs::msg::Timesync>::SharedPtr timesync_sub_;
-
 	std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
 
-	uint64_t offboard_setpoint_counter_;   //!< counter for the number of setpoints sent
+	
+
+	float offboard_setpoint_counter_;   //!< counter for the number of setpoints sent
 
 	void publish_offboard_control_mode() const;
 	void publish_trajectory_setpoint() const;
@@ -166,7 +168,7 @@ void OffboardControl::publish_offboard_control_mode() const {
 	msg.velocity = false;
 	msg.acceleration = false;
 	msg.attitude = true;
-	msg.body_rate = true;
+	msg.body_rate = false;
 
 	offboard_control_mode_publisher_->publish(msg);
 }
@@ -190,18 +192,24 @@ void OffboardControl::publish_trajectory_setpoint() const {
 
 /**
  * Publish a attitude setpoint
- */
+ *
 void OffboardControl::publish_vehicle_attitude_setpoint() const {
 	VehicleAttitudeSetpoint msg{};
 	msg.timestamp = timestamp_.load();
-	Eigen::Vector3d eul= {1,1,1};
 	std::array<float, 4> q_d ;
-	eigen_quat_to_array(px4_ros_com::frame_transforms::utils::quaternion::quaternion_from_euler(eul),q_d);
+	double roll = 0, pitch = 0, yaw = 0 ;
+	roll=(M_PI/15)*sin(M_PI*offboard_setpoint_counter_ / 15);
+	pitch=(M_PI/15)*cos(M_PI*offboard_setpoint_counter_/ 15);
+	yaw=0.6981;
+	//roll=(M_PI/9);
+	//pitch=(M_PI/9);
+	//yaw=0.6981;
+	eigen_quat_to_array(px4_ros_com::frame_transforms::utils::quaternion::quaternion_from_euler(roll,pitch,yaw),q_d); // disable when first build
 	msg.q_d = q_d;
-	msg.thrust_body = {0,0,-0.8}; 
+	msg.thrust_body = {0,0,-0.31}; 
 
 	vehicle_attitude_setpoint_publisher_->publish(msg);
-}
+}*/
 
 /**
  * @brief Publish vehicle commands
